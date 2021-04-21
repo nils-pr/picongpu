@@ -33,19 +33,16 @@ namespace picongpu
             {
                 namespace defaults
                 {
-                    //! Use only the 0th Laguerremode for a standard Gaussian
-                    static constexpr uint32_t MODENUMBER = 0;
-                    PMACC_CONST_VECTOR(float_X, MODENUMBER + 1, LAGUERREMODES, 1.0);
-                    // This is just an example for a more complicated set of Laguerre modes
-                    // constexpr uint32_t MODENUMBER = 12;
-                    // PMACC_CONST_VECTOR(float_X, MODENUMBER + 1, LAGUERREMODES, -1.0, 0.0300519, 0.319461, -0.23783,
-                    // 0.0954839, 0.0318653, -0.144547, 0.0249208, -0.111989, 0.0434385, -0.030038, -0.00896321,
-                    // -0.0160788);
-
                     struct GaussianBeamParam
                     {
                         /** unit: meter */
                         static constexpr float_64 WAVE_LENGTH_SI = 0.8e-6;
+
+                        // unit: seconds^-2
+                        static constexpr float_64 GDD_SI = 0.0 * (1.0e-15) * (1.0e-15);
+
+                        // unit: seconds^-3
+                        static constexpr float_64 TOD_SI = 40000.0 * (1.0e-15) * (1.0e-15) * (1.0e-15);
 
                         /** Convert the normalized laser strength parameter a0 to Volt per meter */
                         static constexpr float_64 UNITCONV_A0_to_Amplitude_SI = -2.0 * PI / WAVE_LENGTH_SI
@@ -110,9 +107,6 @@ namespace picongpu
                          */
                         static constexpr float_X LASER_PHASE = 0.0;
 
-                        using LAGUERREMODES_t = defaults::LAGUERREMODES_t;
-                        static constexpr uint32_t MODENUMBER = defaults::MODENUMBER;
-
                         /** Available polarisation types
                          */
                         enum PolarisationType
@@ -123,7 +117,7 @@ namespace picongpu
                         };
                         /** Polarization selection
                          */
-                        static constexpr PolarisationType Polarisation = CIRCULAR;
+                        static constexpr PolarisationType Polarisation = LINEAR_X;
                     };
                 } // namespace defaults
             } // namespace gaussianBeam
