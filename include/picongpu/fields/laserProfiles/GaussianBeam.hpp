@@ -78,15 +78,15 @@ namespace picongpu
                     DataSpace<simDim> m_superCellToLocalOriginCellOffset;
 
                     /*
-                    alpha is a factor used for the calculation of the transverse spectrum
+                    alpha is a factor used for the calculation of the transverse spectrum:
                     alpha = angular_frequency * waist_radius^2 / (2 * c * y)
-                    y is choosen to be zero at the focus point in the frame of reference used to express the equations for the transversal spectrum
-                    as we want to initialize the laser with the focus point at FOCUS_POS in PIConGPU reference frame
+                    y is choosen to be zero at the focus point in the frame of reference used to express the equations for the transversal spectrum.
+                    as we want to initialize the laser with the focus point at FOCUS_POS in PIConGPU reference frame:
                     --> y = -Focus_POS
                     */
                     HDINLINE float_X alpha(float_X v)
                     {
-                    float_X alpha = 2.0 * float_X(PI) * v * math::pow(float_X(Unitless::W0), 2.0) / (2 * SPEED_OF_LIGHT * -1.0 * Unitless::FOCUS_POS);
+                    float_X alpha = 2.0 * float_X(PI) * v * math::pow(float_X(Unitless::W0), 2.0) / (2.0 * SPEED_OF_LIGHT * -1.0 * Unitless::FOCUS_POS);
                     return alpha;
                     }
 
@@ -105,16 +105,13 @@ namespace picongpu
                     }
 
                     /*
-                    to implement a laser-pulse with a transversal profile in this laserProfile the spectrum (and phase) have to be altered
+                    to implement a laser-pulse with a transversal profile in this laserProfile the spectrum (and phase) have to be altered:
                     spectrum(v) --> spectrum(v, r) with radius r ( r = sqrt[ (x-x0)^2 + (z-z0)^2 ] = sqrt[x^2 + z^2] with (x0, z0) = (0, 0)
-                    as you can see the the goal is to implement a radial symmetric laserProfile, which will be gaussian in addition
-                    the center axis of the beam is choosen to be at (x, z) = 0 (hense (x0, z0) = (0, 0))
+                    as you can see the the goal is to implement a radial symmetric laserProfile, which will be gaussian.
+                    in addition the center axis of the beam is choosen to be at (x, z) = 0 (hense (x0, z0) = (0, 0)).
 
-                    E = E_Phase * E_Amplitude
-                    E_Amplitude = spectrum_v * [1 + alpha^-2]^-1/4 * exp( -r^2 / [W0^2 * [1 + alpha^-2])
-                    with spectrum_v as the spectrum which one would have if a transversal profile would be neglected ??? so?
-                    here: gauss spectrum
-                    problem: how to acces coordinates of the cell an how to give a value back to just one cell???
+                    E_Amplitudespectrum_transversal = spectrum_v * [1 + alpha^-2]^-1/4 * exp( -r^2 / [W0^2 * [1 + alpha^-2])
+                    with spectrum_v as the spectrum which one would have if a transversal profile would be neglected (here: gaussian spectrum)
                     */
                     HDINLINE float_X transversal_spectrum(float_X v, float_X r2)
                     {
@@ -133,9 +130,10 @@ namespace picongpu
                     HDINLINE float_X phase_v(float_X v, float_X r2)
                     {
                         float_X phase_shift_GDD_TOD = float_X( 0.5 * Unitless::GDD * math::pow( 2.0 * float_X(PI) * ( v - Unitless::v0 ), 2.0) + (1.0/6.0) * Unitless::TOD * math::pow( 2.0 * float_X(PI) * (v - Unitless::v0), 3.0) );
-                        float_X phase_shift_transversal_1 = float_X( 0.5 * math::atan(1.0/3.0) + 2.0 * float_X(PI) * v / (SPEED_OF_LIGHT * Unitless::FOCUS_POS) );
-                        float_X phase_shift_transversal_2 = float_X( r2 * (-2.0) * float_X(PI) / (2.0 * SPEED_OF_LIGHT * (1 + alpha(v) * alpha(v))) );
-                        float_X phase_v = phase_shift_GDD_TOD + phase_shift_transversal_1 + phase_shift_transversal_2;
+                        float_X phase_shift_transversal_1 = float_X( 0.5 * math::atan(1.0/alpha(v)) );
+                        float_X phase_shift_transversal_2 = float_X( 2.0 * float_X(PI) * v * Unitless::FOCUS_POS / SPEED_OF_LIGHT );
+                        float_X phase_shift_transversal_3 = float_X( r2 * PI * v / ( SPEED_OF_LIGHT * Unitless::FOCUS_POS * ( 1 + math::pow(alpha(v), 2.0) ) ) );
+                        float_X phase_v = phase_shift_GDD_TOD + phase_shift_transversal_1 + phase_shift_transversal_2 + phase_shift_transversal_3;
                         return phase_v;
                     }
 
@@ -186,7 +184,7 @@ namespace picongpu
                      *  @param n order of the Laguerre polynomial
                      *  @param x coordinate at which the polynomial is evaluated
                      *  @return ...
-                     */
+                     
                     HDINLINE float_X simpleLaguerre(const uint32_t n, const float_X x)
                     {
                         // Result for special case n == 0
@@ -208,7 +206,7 @@ namespace picongpu
                             currentN++;
                         }
                         return laguerreN;
-                    }
+                    }*/
 
                     /** Device-Side Constructor
                      *
@@ -261,107 +259,13 @@ namespace picongpu
                         // calculate focus position relative to the laser initialization plane
                         float_X const focusPos = Unitless::FOCUS_POS - pos.y();
 
-                        // rayleigh length (in y-direction)
-                        //float_X const y_R = float_X(PI) * Unitless::W0 * Unitless::W0 / Unitless::WAVE_LENGTH;
-
-                        // inverse radius of curvature of the beam's  wavefronts
-                        //float_X const R_y_inv = -focusPos / (y_R * y_R + focusPos * focusPos);
-
-                        // initialize temporary variables
-                        //float_X etrans(0.0_X);
-                        //float_X etrans_norm(0.0_X);
-                        //PMACC_CASSERT_MSG(
-                        //    MODENUMBER_must_be_smaller_than_number_of_entries_in_LAGUERREMODES_vector,
-                        //    Unitless::MODENUMBER < Unitless::LAGUERREMODES_t::dim);
-                        //for(uint32_t m = 0; m <= Unitless::MODENUMBER; ++m)
-                        //    etrans_norm += typename Unitless::LAGUERREMODES_t{}[m];
-
-                        // beam waist in the near field: w_y(y=0) == W0
-                        //float_X const w_y = Unitless::W0 * math::sqrt(1.0_X + (focusPos / y_R) * (focusPos / y_R));
-                        //! the Gouy phase shift
-                        //float_X const xi_y = math::atan(-focusPos / y_R);
-
-
-                        // my implementation
-                        //
-                        //
-                        //
-                        //
-                        //
-
                         m_elong.x() = E_t_dft(m_currentStep, r2);
 
+                        // jump over the guard of the electric field
+                        m_dataBoxE(localCell + SuperCellSize::toRT() * GuardSize::toRT()) = m_elong;
 
 
-
-
-
-
-                        /*if(Unitless::Polarisation == Unitless::LINEAR_X
-                           || Unitless::Polarisation == Unitless::LINEAR_Z)
-                        {
-                            for(uint32_t m = 0; m <= Unitless::MODENUMBER; ++m)
-                            {
-                                etrans += typename Unitless::LAGUERREMODES_t{}[m]
-                                    * simpleLaguerre(m, 2.0_X * r2 / w_y / w_y) * math::exp(-r2 / w_y / w_y)
-                                    * math::cos(
-                                              2.0_X * float_X(PI) / Unitless::WAVE_LENGTH * focusPos
-                                              - 2.0_X * float_X(PI) / Unitless::WAVE_LENGTH * r2 / 2.0_X * R_y_inv
-                                              + (2._X * float_X(m) + 1._X) * xi_y + m_phase)
-                                    * math::exp(
-                                              -(r2 / 2.0_X * R_y_inv - focusPos
-                                                - m_phase / 2.0_X / float_X(PI) * Unitless::WAVE_LENGTH)
-                                              * (r2 / 2.0_X * R_y_inv - focusPos
-                                                 - m_phase / 2.0_X / float_X(PI) * Unitless::WAVE_LENGTH)
-                                              / SPEED_OF_LIGHT / SPEED_OF_LIGHT / (2.0_X * Unitless::PULSE_LENGTH)
-                                              / (2.0_X * Unitless::PULSE_LENGTH));
-                            }
-                            m_elong *= etrans / etrans_norm;
-                        }
-                        else if(Unitless::Polarisation == Unitless::CIRCULAR)
-                        {
-                            for(uint32_t m = 0; m <= Unitless::MODENUMBER; ++m)
-                            {
-                                etrans += typename Unitless::LAGUERREMODES_t{}[m]
-                                    * simpleLaguerre(m, 2.0_X * r2 / w_y / w_y) * math::exp(-r2 / w_y / w_y)
-                                    * math::cos(
-                                              2.0_X * float_X(PI) / Unitless::WAVE_LENGTH * focusPos
-                                              - 2.0_X * float_X(PI) / Unitless::WAVE_LENGTH * r2 / 2.0_X * R_y_inv
-                                              + (2._X * float_X(m) + 1._X) * xi_y + m_phase)
-                                    * math::exp(
-                                              -(r2 / 2.0_X * R_y_inv - focusPos
-                                                - m_phase / 2.0_X / float_X(PI) * Unitless::WAVE_LENGTH)
-                                              * (r2 / 2.0_X * R_y_inv - focusPos
-                                                 - m_phase / 2.0_X / float_X(PI) * Unitless::WAVE_LENGTH)
-                                              / SPEED_OF_LIGHT / SPEED_OF_LIGHT / (2.0_X * Unitless::PULSE_LENGTH)
-                                              / (2.0_X * Unitless::PULSE_LENGTH));
-                            }
-                            m_elong.x() *= etrans / etrans_norm;
-                            m_phase += float_X(PI / 2.0);
-                            etrans = 0.0_X;
-                            for(uint32_t m = 0; m <= Unitless::MODENUMBER; ++m)
-                            {
-                                etrans += typename Unitless::LAGUERREMODES_t{}[m]
-                                    * simpleLaguerre(m, 2.0_X * r2 / w_y / w_y) * math::exp(-r2 / w_y / w_y)
-                                    * math::cos(
-                                              2.0_X * float_X(PI) / Unitless::WAVE_LENGTH * focusPos
-                                              - 2.0_X * float_X(PI) / Unitless::WAVE_LENGTH * r2 / 2.0_X * R_y_inv
-                                              + (2._X * float_X(m) + 1._X) * xi_y + m_phase)
-                                    * math::exp(
-                                              -(r2 / 2.0_X * R_y_inv - focusPos
-                                                - m_phase / 2.0_X / float_X(PI) * Unitless::WAVE_LENGTH)
-                                              * (r2 / 2.0_X * R_y_inv - focusPos
-                                                 - m_phase / 2.0_X / float_X(PI) * Unitless::WAVE_LENGTH)
-                                              / SPEED_OF_LIGHT / SPEED_OF_LIGHT / (2.0_X * Unitless::PULSE_LENGTH)
-                                              / (2.0_X * Unitless::PULSE_LENGTH));
-                            }
-                            m_elong.z() *= etrans / etrans_norm;
-                            // reminder: if you want to use phase below, substract pi/2
-                            // m_phase -= float_X( PI / 2.0 );
-                        }
-                        */
-
-                        if(Unitless::initPlaneY != 0) // compile time if
+                        /*if(Unitless::initPlaneY != 0) // compile time if
                         {
                             /* If the laser is not initialized in the first cell we emit a
                              * negatively and positively propagating wave. Therefore we need to multiply the
@@ -370,7 +274,7 @@ namespace picongpu
                              * The negatively propagating wave is damped by the absorber.
                              *
                              * The `correctionFactor` assume that the wave is moving in y direction.
-                             */
+                             
                             auto const correctionFactor = (SPEED_OF_LIGHT * DELTA_T) / CELL_HEIGHT * 2._X;
 
                             // jump over the guard of the electric field
@@ -381,7 +285,7 @@ namespace picongpu
                         {
                             // jump over the guard of the electric field
                             m_dataBoxE(localCell + SuperCellSize::toRT() * GuardSize::toRT()) = m_elong;
-                        }
+                        }*/
                     }
                 };
             } // namespace acc
