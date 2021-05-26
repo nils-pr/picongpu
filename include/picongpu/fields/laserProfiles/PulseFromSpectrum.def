@@ -29,19 +29,19 @@ namespace picongpu
     {
         namespace laserProfiles
         {
-            namespace gaussianBeam
+            namespace pulseFromSpectrum
             {
                 namespace defaults
                 {
-                    struct GaussianBeamParam
+                    struct PulseFromSpectrumParam
                     {
                         /** unit: meter */
                         static constexpr float_64 WAVE_LENGTH_SI = 0.8e-6;
 
-                        // unit: seconds^-2
+                        /** unit: seconds^-2 */
                         static constexpr float_64 GDD_SI = 0.0 * (1.0e-15) * (1.0e-15);
 
-                        // unit: seconds^-3
+                        /** unit: seconds^-3 */
                         static constexpr float_64 TOD_SI = 40000.0 * (1.0e-15) * (1.0e-15) * (1.0e-15);
 
                         /** Convert the normalized laser strength parameter a0 to Volt per meter */
@@ -78,6 +78,7 @@ namespace picongpu
                          *
                          *  unit: meter */
                         static constexpr float_64 W0_SI = 5.0e-6 / 1.17741;
+
                         /** the distance to the laser focus in y-direction
                          *  unit: meter */
                         static constexpr float_64 FOCUS_POS_SI = 4.62e-5;
@@ -120,16 +121,16 @@ namespace picongpu
                         static constexpr PolarisationType Polarisation = LINEAR_X;
                     };
                 } // namespace defaults
-            } // namespace gaussianBeam
+            } // namespace pulseFromSpectrum
 
-            /** Gaussian Beam laser profile with finite pulse length
+            /** PulseFromSpectrum laser profile with a transversal gaussian profile and longitudinal shape derived from spectrum
              *
-             * @tparam T_Params class parameter to configure the Gaussian Beam profile,
-             *                  see members of gaussianBeam::default::GaussianBeamParam
+             * @tparam T_Params class parameter to configure the PulseFromSpectrum profile,
+             *                  see members of pulseFromSpectrum::default::PulseFromSpectrumParam
              *                  for required members
              */
-            template<typename T_Params = gaussianBeam::defaults::GaussianBeamParam>
-            struct GaussianBeam;
+            template<typename T_Params = pulseFromSpectrum::defaults::PulseFromSpectrumParam>
+            struct PulseFromSpectrum;
 
         } // namespace laserProfiles
     } // namespace fields

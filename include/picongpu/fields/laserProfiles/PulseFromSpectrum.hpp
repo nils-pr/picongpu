@@ -32,7 +32,7 @@ namespace picongpu
     {
         namespace laserProfiles
         {
-            namespace gaussianBeam
+            namespace pulseFromSpectrum
             {
                 template< typename T_Params >
                 struct Unitless : public T_Params
@@ -48,100 +48,102 @@ namespace picongpu
                     static constexpr float_X TOD = float_X( Params::TOD_SI / (UNIT_TIME * UNIT_TIME * UNIT_TIME) ); // unit: seconds^3
                     static constexpr float_X W0 = float_X( Params::W0_SI / UNIT_LENGTH ); // unit: meter
                     static constexpr float_X FOCUS_POS = float_X( Params::FOCUS_POS_SI / UNIT_LENGTH ); // unit: meter
-
-
-                    static constexpr float_X Z_R = float_X( PI * v0 * W0 * W0 / SPEED_OF_LIGHT ); // unit: meter
-
-                    // INIT_TIME is not used in this Laser Profile!!!
-                    // But Compilation without it results in following Error:
-                    // LaserPhysics.hpp(109): class "picongpu:: ... ::PlaneWaveParam>"has no member "INIT_TIME"
-                    // RAMP_INIT was replaced by PULSE_INIT (RAMP_INIT was defined as 1/2 PULSE_INT, but is not used further
-                    // (almost the same thing happens with WAVE_LENGTH)
                     static constexpr float_X INIT_TIME = float_X( ( Params::PULSE_INIT * Params::PULSE_LENGTH_SI) / UNIT_TIME ); // unit: seconds (full inizialisation length)
+
+                    /* Rayleigh-Length in y-direction
+                     */
+                    static constexpr float_X Y_R = float_X( PI * v0 * W0 * W0 / SPEED_OF_LIGHT ); // unit: meter
 
                     /* initialize the laser not in the first cell is equal to a negative shift
                      * in time
                      */
                     static constexpr float_X laserTimeShift = Params::initPlaneY * CELL_HEIGHT / SPEED_OF_LIGHT;
                     };
-            } // namespace gaussianBeam
+            } // namespace pulseFromSpectrum
 
             namespace acc
             {
                 template<typename T_Unitless>
-                struct GaussianBeam : public T_Unitless
+                struct PulseFromSpectrum : public T_Unitless
                 {
                     using Unitless = T_Unitless;
 
                     float3_X m_elong;
                     float_X m_phase;
-                    float_X m_currentStep; // hier
+                    float_X m_currentStep;
                     typename FieldE::DataBoxType m_dataBoxE;
                     DataSpace<simDim> m_offsetToTotalDomain;
                     DataSpace<simDim> m_superCellToLocalOriginCellOffset;
 
-
+                    /** waist of the laser beam depending on y-coordinate
+                     * @param y y-coordinate
+                     */
                     HDINLINE float_X Waist(float_X y)
                     {
+                        // shift from PIConGPU-coordinates to coordinate system used in the equations
                         float_X y_shift = y - Unitless::FOCUS_POS;
-                        return Unitless::W0 * math::sqrt( 1.0 + math::pow(y_shift / Unitless::Z_R, 2.0) );
+                        return Unitless::W0 * math::sqrt( 1.0 + math::pow(y_shift / Unitless::Y_R, 2.0) );
                     }
 
+                    /** inverse radius of curvature depending on y-coordinate
+                     * @param y y-coordinate
+                     */
                     HDINLINE float_X R_inv(float_X y)
                     {
+                        // shift from PIConGPU-coordinates to coordinate system used in the equations
                         float_X y_shift = y - Unitless::FOCUS_POS;
-                        return y_shift / ( math::pow(y_shift, 2.0) + Unitless::Z_R * Unitless::Z_R );
+                        return y_shift / ( math::pow(y_shift, 2.0) + math::pow(Unitless::Y_R, 2.0) );
                     }
 
-                    /*
-                    gauss spectrum
-                    norm is choosen so, that the maximum has value 1
-                    v0 ... central frequency
-                    PULSE_LENGTH ... standard sigma of gauss in time domain
-                    in: v ... frequency
-                    out: A_v ... amplitude depending on v (spectrum)
-                    */
+                    /** gauss spectrum
+                     * norm is choosen so, that the maximum has value 1
+                     * v0 is the central frequency
+                     * PULSE_LENGTH is used as standard sigma of gauss in time domain
+                     * @param v frequency
+                     */
                     HDINLINE float_X gauss_spectrum(float_X v)
                     {
                         float_X norm = 0.5 * math::sqrt(float_X(PI)) * Unitless::PULSE_LENGTH;
                         return norm * math::exp( -1.0 * math::pow( Unitless::PULSE_LENGTH * float_X(PI) * ( v - Unitless::v0 ), 2.0) );
                     }
 
-                    /*
-                    to implement a laser-pulse with a transversal profile in this laserProfile the spectrum (and phase) have to be altered:
-                    spectrum(v) --> spectrum(v, r) with radius r ( r = sqrt[ (x-x0)^2 + (z-z0)^2 ] = sqrt[x^2 + z^2] with (x0, z0) = (0, 0)
-                    as you can see the the goal is to implement a radial symmetric laserProfile, which will be gaussian.
-                    in addition the center axis of the beam is choosen to be at (x, z) = 0 (hense (x0, z0) = (0, 0)).
-
-                    E_Amplitudespectrum_transversal = spectrum_v * [1 + alpha^-2]^-1/2 * exp( -r^2 / [W0^2 * [1 + alpha^-2])
-                    with spectrum_v as the spectrum which one would have if a transversal profile would be neglected (here: gaussian spectrum)
-                    */
+                    /** transversal spectrum at the init plane
+                     * to implement a laser-pulse with a transversal profile, the spectrum has to be depending on the distance to the beam axis:
+                     * spectrum(v) --> spectrum(v, r) (the transversal profile is radial symmetric)
+                     * equation: spectrum_transversal(v, r) = spectrum(v) * (1 + Focus_Pos^2 / Y_R^2 )^-1/2 * exp( -r^2 / Waist^2 )
+                     * with spectrum(v) as the spectrum one would have without a transversal profile (here a gaussian spectrum)
+                     * @param v frequency
+                     * @param r2 distance to beam axis to the power of 2
+                     */
                     HDINLINE float_X transversal_spectrum(float_X v, float_X r2)
                     {
-                        float_X a = 1.0 + math::pow(Unitless::FOCUS_POS / Unitless::Z_R, 2.0);
-                        //float_X transversal_spectrum = gauss_spectrum(v) * math::pow(a1, -0.5) * math::exp( -1.0*r2 / (math::pow(float_X(Unitless::W0), 2.0) * a1 ));
+                        float_X a = 1.0 + math::pow(Unitless::FOCUS_POS / Unitless::Y_R, 2.0);
                         float_X transversal_spectrum = gauss_spectrum(v) * math::pow(a, -0.5) * math::exp( -1.0*r2 / math::pow(Waist(0.0), 2.0));
                         return transversal_spectrum;
                     }
 
-
-                    /*
-                    This part is a bit complex, cause the phase is altered for different purposes.
-                    1. to be able to choose freely the GDD/TOD of the laser-pulse:
-                        --> just look at the definition of GDD/TOD as part of the Taylor-Series of the phase to understand this implementation
-                    2. to implement the transversal profile:
-                        -->
-                    */
+                    /** phase of the pulse depending on frequency and radius to beam axis at the init plane
+                     * the phase is altered for two purposes:
+                     * 1. to be able to choose freely the GDD/TOD of the laser-pulse
+                     * 2. to implement the transversal profile (thus the phase depends on the distance to the beam axis)
+                     * @param v frequency
+                     * @param r2 distance to beam axis to the power of 2
+                     */
                     HDINLINE float_X phase_v(float_X v, float_X r2)
                     {
-                        float_X phase_shift_GDD_TOD = float_X( 0.5 * Unitless::GDD * math::pow( 2.0 * float_X(PI) * ( v - Unitless::v0 ), 2.0) + (1.0/6.0) * Unitless::TOD * math::pow( 2.0 * float_X(PI) * (v - Unitless::v0), 3.0) );
-                        float_X phase_shift_transversal_1 = float_X( -1.0 * math::atan( -1.0*Unitless::FOCUS_POS / Unitless::Z_R ) );
+                        float_X phase_shift_GDD = float_X( 0.5 * Unitless::GDD * math::pow( 2.0 * float_X(PI) * ( v - Unitless::v0 ), 2.0) );
+                        float_X phase_shift_TOD = float_X( (1.0/6.0) * Unitless::TOD * math::pow( 2.0 * float_X(PI) * (v - Unitless::v0), 3.0) );
+                        float_X phase_shift_transversal_1 = float_X( -1.0 * math::atan( -1.0*Unitless::FOCUS_POS / Unitless::Y_R ) );
                         float_X phase_shift_transversal_2 = float_X( -2.0 * PI * v * Unitless::FOCUS_POS / SPEED_OF_LIGHT );
                         float_X phase_shift_transversal_3 = float_X( r2 * PI * v * R_inv(0.0) / SPEED_OF_LIGHT );
-                        float_X phase_v = phase_shift_GDD_TOD + phase_shift_transversal_1 + phase_shift_transversal_2 + phase_shift_transversal_3;
+                        float_X phase_v = phase_shift_GDD + phase_shift_TOD + phase_shift_transversal_1 + phase_shift_transversal_2 + phase_shift_transversal_3;
                         return phase_v;
                     }
 
+                    /** fourier-transformation from frequency domain to time domain
+                     * @param currentStep current simulation time step
+                     * @param r2 radius to beam axis to the power of 2
+                     */
                     HDINLINE float_X E_t_dft( uint32_t currentStep , float_X r2)
                     {
                         // number of steps for the fourier-transformation
@@ -190,7 +192,7 @@ namespace picongpu
                      * @param offsetToTotalDomain offset to origin of global (@todo: total) coordinate system (possibly
                      * after transform to centered origin)
                      */
-                    HDINLINE GaussianBeam(
+                    HDINLINE PulseFromSpectrum(
                         typename FieldE::DataBoxType const& dataBoxE,
                         DataSpace<simDim> const& superCellToLocalOriginCellOffset,
                         DataSpace<simDim> const& offsetToTotalDomain,
@@ -200,7 +202,7 @@ namespace picongpu
                         )
                         : m_elong(elong)
                         , m_phase(phase)
-                        , m_currentStep(currentStep) //hier
+                        , m_currentStep(currentStep)
                         , m_dataBoxE(dataBoxE)
                         , m_offsetToTotalDomain(offsetToTotalDomain)
                         , m_superCellToLocalOriginCellOffset(superCellToLocalOriginCellOffset)
@@ -214,7 +216,7 @@ namespace picongpu
                      * @param cellIndexInSuperCell ND cell index in current supercell
                      */
                     template<typename T_Acc>
-                    HDINLINE void operator()(T_Acc const&, DataSpace<simDim> const& cellIndexInSuperCell) //hier?
+                    HDINLINE void operator()(T_Acc const&, DataSpace<simDim> const& cellIndexInSuperCell)
                     {
                         // coordinate system to global simulation as origin
                         DataSpace<simDim> const localCell(cellIndexInSuperCell + m_superCellToLocalOriginCellOffset);
@@ -245,9 +247,9 @@ namespace picongpu
             } // namespace acc
 
             template<typename T_Params>
-            struct GaussianBeam : public gaussianBeam::Unitless<T_Params>
+            struct PulseFromSpectrum : public pulseFromSpectrum::Unitless<T_Params>
             {
-                using Unitless = gaussianBeam::Unitless<T_Params>;
+                using Unitless = pulseFromSpectrum::Unitless<T_Params>;
 
                 float3_X elong;
                 float_X phase;
@@ -259,7 +261,7 @@ namespace picongpu
                  *
                  * @param currentStep current simulation time step
                  */
-                HINLINE GaussianBeam(uint32_t currentStep) : m_currentStep(currentStep)
+                HINLINE PulseFromSpectrum(uint32_t currentStep) : m_currentStep(currentStep)
                 {
                     // get data
                     DataConnector& dc = Environment<>::get().DataConnector();
@@ -286,14 +288,13 @@ namespace picongpu
                  * @param configuration of the worker
                  */
                 template<typename T_WorkerCfg, typename T_Acc>
-                HDINLINE acc::GaussianBeam<Unitless> operator()(
+                HDINLINE acc::PulseFromSpectrum<Unitless> operator()(
                     T_Acc const&,
                     DataSpace<simDim> const& localSupercellOffset,
                     T_WorkerCfg const&) const
                 {
                     auto const superCellToLocalOriginCellOffset = localSupercellOffset * SuperCellSize::toRT();
-                    // error: no instance of constructor "picongpu::fields::laserProfiles::acc::GaussianBeam<T_Unitless>::GaussianBeam [with T_Unitless=picongpu::fields::laserProfiles::gaussianBeam::Unitless<picongpu::fields::laserProfiles::GaussianBeamParam>]" matches the argument list
-                    return acc::GaussianBeam<Unitless>(
+                    return acc::PulseFromSpectrum<Unitless>(
                         dataBoxE,
                         superCellToLocalOriginCellOffset,
                         offsetToTotalDomain,
@@ -305,7 +306,7 @@ namespace picongpu
                 //! get the name of the laser profile
                 static HINLINE std::string getName()
                 {
-                    return "GaussianBeam";
+                    return "PulseFromSpectrum";
                 }
             };
 
